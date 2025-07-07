@@ -23,15 +23,24 @@ else
     echo "✅ Python 3 найден"
 fi
 
-# Проверка Chrome
-if ! command -v google-chrome &> /dev/null; then
-    echo "❌ Google Chrome не установлен. Устанавливаем..."
-    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+# Проверка Chromium
+if ! command -v chromium &> /dev/null; then
+    echo "❌ Chromium не установлен. Устанавливаем..."
     sudo apt-get update
-    sudo apt-get install -y google-chrome-stable
+    sudo apt-get install -y chromium chromium-driver
+    echo "✅ Chromium установлен"
 else
-    echo "✅ Google Chrome найден"
+    echo "✅ Chromium найден"
+fi
+
+# Проверка chromedriver
+if ! command -v chromedriver &> /dev/null; then
+    echo "❌ chromedriver не найден. Устанавливаем..."
+    sudo apt-get update
+    sudo apt-get install -y chromium-driver
+    echo "✅ chromedriver установлен"
+else
+    echo "✅ chromedriver найден"
 fi
 
 # Создание виртуального окружения
@@ -43,6 +52,26 @@ source venv/bin/activate
 echo "📦 Установка зависимостей..."
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# Проверка совместимости Chromium
+echo "🔍 Проверка совместимости Chromium..."
+if command -v chromium &> /dev/null && command -v chromedriver &> /dev/null; then
+    CHROMIUM_VERSION=$(chromium --version | head -n1 | cut -d' ' -f2)
+    CHROMEDRIVER_VERSION=$(chromedriver --version | cut -d' ' -f2)
+    echo "✅ Chromium версия: $CHROMIUM_VERSION"
+    echo "✅ chromedriver версия: $CHROMEDRIVER_VERSION"
+    
+    # Проверяем совместимость версий
+    if [[ "$CHROMIUM_VERSION" != "$CHROMEDRIVER_VERSION" ]]; then
+        echo "⚠️  Версии Chromium и chromedriver не совпадают"
+        echo "   Chromium: $CHROMIUM_VERSION"
+        echo "   chromedriver: $CHROMEDRIVER_VERSION"
+        echo "   Это может вызвать проблемы. Рекомендуется обновить chromedriver"
+    fi
+else
+    echo "❌ Chromium или chromedriver не найдены"
+    exit 1
+fi
 
 # Создание файла конфигурации
 if [ ! -f .env ]; then
@@ -56,6 +85,38 @@ if [ ! -f .env ]; then
     echo "После настройки запустите: python telegram_bot.py"
 else
     echo "✅ Файл конфигурации уже существует"
+fi
+
+# Выбор типа установки
+echo ""
+echo "🔧 Выберите тип установки:"
+echo "1. Обычная установка (рекомендуется для разработки)"
+echo "2. Оптимизированная установка (рекомендуется для продакшена)"
+read -p "Выберите вариант (1/2): " -n 1 -r
+echo
+
+if [[ $REPLY =~ ^[2]$ ]]; then
+    echo "🚀 Оптимизированная установка..."
+    echo "📦 Установка дополнительных оптимизаций..."
+    
+    # Создаем символическую ссылку для совместимости
+    if [ ! -L /usr/bin/google-chrome-stable ]; then
+        sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
+        echo "✅ Создана символическая ссылка для совместимости"
+    fi
+    
+    # Создаем директории для логов
+    mkdir -p logs
+    echo "✅ Создана директория для логов"
+    
+    echo "📋 Для запуска используйте:"
+    echo "   python telegram_bot.py"
+    echo "   или Docker: docker compose -f docker-compose.optimized.yml up -d"
+else
+    echo "📦 Обычная установка..."
+    echo "📋 Для запуска используйте:"
+    echo "   python telegram_bot.py"
+    echo "   или Docker: docker compose up -d"
 fi
 
 # Создание systemd сервиса (опционально)
@@ -111,4 +172,21 @@ echo "1. Отредактируйте файл .env с вашими данным
 echo "2. Запустите бота: python telegram_bot.py"
 echo "3. Или используйте systemd сервис (если создан)"
 echo ""
-echo "📚 Дополнительная информация в README.md" 
+echo "🔧 Дополнительные команды:"
+echo "   # Проверка версий"
+echo "   chromium --version"
+echo "   chromedriver --version"
+echo ""
+echo "   # Запуск в Docker (обычный)"
+echo "   docker compose up -d"
+echo ""
+echo "   # Запуск в Docker (оптимизированный)"
+echo "   docker compose -f docker-compose.optimized.yml up -d"
+echo ""
+echo "   # Просмотр логов"
+echo "   docker compose logs -f"
+echo ""
+echo "📚 Дополнительная информация:"
+echo "   - README.md - основная документация"
+echo "   - DOCKER_README.md - Docker развертывание"
+echo "   - DOCKER_OPTIMIZATION.md - оптимизация образов" 

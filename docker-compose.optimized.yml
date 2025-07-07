@@ -1,0 +1,67 @@
+# Docker Compose configuration for optimized Telegram ChatGPT Bot
+
+services:
+  telegram-chatgpt-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.optimized
+    container_name: telegram-chatgpt-bot-optimized
+    restart: unless-stopped
+    environment:
+      # Telegram Bot Token (обязательно)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      
+      # ChatGPT credentials (обязательно)
+      - CHATGPT_EMAIL=${CHATGPT_EMAIL}
+      - CHATGPT_PASSWORD=${CHATGPT_PASSWORD}
+      
+      # Настройки браузера (опционально)
+      - HEADLESS_MODE=${HEADLESS_MODE:-true}
+      - BROWSER_TIMEOUT=${BROWSER_TIMEOUT:-30}
+      
+      # Настройки Python
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      
+    volumes:
+      # Монтируем логи для просмотра
+      - ./logs:/app/logs
+      
+      # Монтируем временные файлы Chrome
+      - chrome_cache:/tmp/chrome
+      
+    networks:
+      - bot-network
+      
+    # Ограничения ресурсов для оптимизированной версии
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Проверка здоровья
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "telegram_bot.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  chrome_cache:
+    driver: local
+
+networks:
+  bot-network:
+    driver: bridge 

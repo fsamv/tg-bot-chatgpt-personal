@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  telegram-chatgpt-bot:
+    build: .
+    container_name: telegram-chatgpt-bot-prod
+    restart: unless-stopped
+    environment:
+      # Telegram Bot Token (обязательно)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      
+      # ChatGPT credentials (обязательно)
+      - CHATGPT_EMAIL=${CHATGPT_EMAIL}
+      - CHATGPT_PASSWORD=${CHATGPT_PASSWORD}
+      
+      # Настройки браузера (опционально)
+      - HEADLESS_MODE=${HEADLESS_MODE:-true}
+      - BROWSER_TIMEOUT=${BROWSER_TIMEOUT:-30}
+      
+      # Настройки Python
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      
+    volumes:
+      # Монтируем логи для просмотра
+      - ./logs:/app/logs:rw
+      
+      # Монтируем временные файлы Chrome
+      - chrome_cache:/tmp/chrome:rw
+      
+    networks:
+      - bot-network
+      
+    # Ограничения ресурсов для продакшена
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Проверка здоровья
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "telegram_bot.py"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    
+    # Логирование для продакшена
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "5"
+    
+    # Безопасность
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /var/tmp:noexec,nosuid,size=100m
+
+  # Nginx для проксирования (опционально)
+  nginx:
+    image: nginx:alpine
+    container_name: telegram-bot-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - telegram-chatgpt-bot
+    networks:
+      - bot-network
+    profiles:
+      - with-nginx
+
+volumes:
+  chrome_cache:
+    driver: local
+
+networks:
+  bot-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

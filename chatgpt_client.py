@@ -20,24 +20,51 @@ class ChatGPTClient:
         self.logger = logging.getLogger(__name__)
         
     def setup_driver(self):
-        """Настройка Chrome WebDriver"""
+        """Настройка Chrome/Chromium WebDriver"""
         chrome_options = Options()
         
         if self.headless:
             chrome_options.add_argument("--headless")
         
+        # Основные настройки для работы в контейнере
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--disable-images")  # Ускоряет загрузку
         chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Отключаем логи
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        # Дополнительные настройки для стабильности
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--allow-running-insecure-content")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        
+        # Отключаем логи и расширения
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_experimental_option("prefs", {
+            "profile.default_content_setting_values.notifications": 2,
+            "profile.default_content_settings.popups": 0,
+            "profile.managed_default_content_settings.images": 2
+        })
         
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        try:
+            # Пытаемся использовать системный chromedriver (для Chromium)
+            service = Service("/usr/bin/chromedriver")
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as e:
+            self.logger.warning(f"Не удалось использовать системный chromedriver: {e}")
+            # Fallback на webdriver-manager
+            try:
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as e2:
+                self.logger.error(f"Не удалось инициализировать WebDriver: {e2}")
+                raise
+        
         self.wait = WebDriverWait(self.driver, self.timeout)
         
     def login(self):

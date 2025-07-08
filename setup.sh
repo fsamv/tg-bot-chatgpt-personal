@@ -23,11 +23,55 @@ else
     echo "✅ Python 3 найден"
 fi
 
+# Функция для определения дистрибутива
+detect_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo $ID
+    elif [ -f /etc/debian_version ]; then
+        echo "debian"
+    elif [ -f /etc/redhat-release ]; then
+        echo "rhel"
+    else
+        echo "unknown"
+    fi
+}
+
+# Функция для установки Chromium
+install_chromium() {
+    local distro=$1
+    case $distro in
+        "ubuntu"|"debian")
+            echo "📦 Установка Chromium для Ubuntu/Debian..."
+            sudo apt-get update
+            sudo apt-get install -y chromium-browser chromium-chromedriver
+            ;;
+        "fedora"|"rhel"|"centos")
+            echo "📦 Установка Chromium для Fedora/RHEL/CentOS..."
+            sudo dnf update -y
+            sudo dnf install -y chromium chromium-headless chromedriver
+            ;;
+        "arch")
+            echo "📦 Установка Chromium для Arch Linux..."
+            sudo pacman -Syu --noconfirm
+            sudo pacman -S --noconfirm chromium chromedriver
+            ;;
+        *)
+            echo "❌ Неподдерживаемый дистрибутив: $distro"
+            echo "Попробуйте установить Chromium вручную"
+            exit 1
+            ;;
+    esac
+}
+
+# Определяем дистрибутив
+DISTRO=$(detect_distro)
+echo "🔍 Обнаружен дистрибутив: $DISTRO"
+
 # Проверка Chromium
-if ! command -v chromium &> /dev/null; then
+if ! command -v chromium &> /dev/null && ! command -v chromium-browser &> /dev/null; then
     echo "❌ Chromium не установлен. Устанавливаем..."
-    sudo apt-get update
-    sudo apt-get install -y chromium chromium-driver
+    install_chromium $DISTRO
     echo "✅ Chromium установлен"
 else
     echo "✅ Chromium найден"
@@ -36,8 +80,17 @@ fi
 # Проверка chromedriver
 if ! command -v chromedriver &> /dev/null; then
     echo "❌ chromedriver не найден. Устанавливаем..."
-    sudo apt-get update
-    sudo apt-get install -y chromium-driver
+    case $DISTRO in
+        "ubuntu"|"debian")
+            sudo apt-get install -y chromium-chromedriver
+            ;;
+        "fedora"|"rhel"|"centos")
+            sudo dnf install -y chromedriver
+            ;;
+        "arch")
+            sudo pacman -S --noconfirm chromedriver
+            ;;
+    esac
     echo "✅ chromedriver установлен"
 else
     echo "✅ chromedriver найден"
@@ -55,8 +108,17 @@ pip install -r requirements.txt
 
 # Проверка совместимости Chromium
 echo "🔍 Проверка совместимости Chromium..."
-if command -v chromium &> /dev/null && command -v chromedriver &> /dev/null; then
-    CHROMIUM_VERSION=$(chromium --version | head -n1 | cut -d' ' -f2)
+
+# Определяем путь к Chromium
+CHROMIUM_PATH=""
+if command -v chromium &> /dev/null; then
+    CHROMIUM_PATH="chromium"
+elif command -v chromium-browser &> /dev/null; then
+    CHROMIUM_PATH="chromium-browser"
+fi
+
+if [ -n "$CHROMIUM_PATH" ] && command -v chromedriver &> /dev/null; then
+    CHROMIUM_VERSION=$($CHROMIUM_PATH --version | head -n1 | cut -d' ' -f2)
     CHROMEDRIVER_VERSION=$(chromedriver --version | cut -d' ' -f2)
     echo "✅ Chromium версия: $CHROMIUM_VERSION"
     echo "✅ chromedriver версия: $CHROMEDRIVER_VERSION"
@@ -101,8 +163,13 @@ if [[ $REPLY =~ ^[2]$ ]]; then
     
     # Создаем символическую ссылку для совместимости
     if [ ! -L /usr/bin/google-chrome-stable ]; then
-        sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
-        echo "✅ Создана символическая ссылка для совместимости"
+        if command -v chromium &> /dev/null; then
+            sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
+            echo "✅ Создана символическая ссылка для совместимости (chromium)"
+        elif command -v chromium-browser &> /dev/null; then
+            sudo ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+            echo "✅ Создана символическая ссылка для совместимости (chromium-browser)"
+        fi
     fi
     
     # Создаем директории для логов

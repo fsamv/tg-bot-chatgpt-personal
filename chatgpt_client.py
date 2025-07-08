@@ -63,7 +63,15 @@ class ChatGPTClient:
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             except Exception as e2:
                 self.logger.error(f"Не удалось инициализировать WebDriver: {e2}")
-                raise
+                # Последняя попытка - поиск chromedriver в PATH
+                try:
+                    import subprocess
+                    chromedriver_path = subprocess.check_output(['which', 'chromedriver'], text=True).strip()
+                    service = Service(chromedriver_path)
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                except Exception as e3:
+                    self.logger.error(f"Все попытки инициализации WebDriver не удались: {e3}")
+                    raise
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         

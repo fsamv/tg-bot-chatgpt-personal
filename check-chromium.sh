@@ -31,12 +31,22 @@ echo "🔍 Проверка совместимости Chromium"
 echo "=================================="
 
 # Проверка наличия Chromium
+CHROMIUM_PATH=""
 if command -v chromium &> /dev/null; then
-    CHROMIUM_VERSION=$(chromium --version | head -n1 | cut -d' ' -f2)
-    print_success "Chromium найден: версия $CHROMIUM_VERSION"
+    CHROMIUM_PATH="chromium"
+elif command -v chromium-browser &> /dev/null; then
+    CHROMIUM_PATH="chromium-browser"
+fi
+
+if [ -n "$CHROMIUM_PATH" ]; then
+    CHROMIUM_VERSION=$($CHROMIUM_PATH --version | head -n1 | cut -d' ' -f2)
+    print_success "Chromium найден: версия $CHROMIUM_VERSION ($CHROMIUM_PATH)"
 else
     print_error "Chromium не найден"
-    echo "Установите Chromium: sudo apt-get install chromium"
+    echo "Установите Chromium:"
+    echo "  Ubuntu/Debian: sudo apt-get install chromium-browser"
+    echo "  Fedora/RHEL: sudo dnf install chromium"
+    echo "  Arch: sudo pacman -S chromium"
     exit 1
 fi
 
@@ -76,7 +86,7 @@ print_message "Проверка символической ссылки..."
 
 if [ -L /usr/bin/google-chrome-stable ]; then
     LINK_TARGET=$(readlink /usr/bin/google-chrome-stable)
-    if [ "$LINK_TARGET" = "/usr/bin/chromium" ]; then
+    if [ "$LINK_TARGET" = "/usr/bin/chromium" ] || [ "$LINK_TARGET" = "/usr/bin/chromium-browser" ]; then
         print_success "Символическая ссылка настроена правильно"
     else
         print_warning "Символическая ссылка указывает на: $LINK_TARGET"
@@ -87,7 +97,11 @@ else
     read -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
+        if [ "$CHROMIUM_PATH" = "chromium" ]; then
+            sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
+        elif [ "$CHROMIUM_PATH" = "chromium-browser" ]; then
+            sudo ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+        fi
         print_success "Символическая ссылка создана"
     fi
 fi
@@ -98,6 +112,8 @@ print_message "Проверка прав доступа..."
 
 if [ -r /usr/bin/chromium ] && [ -x /usr/bin/chromium ]; then
     print_success "Chromium доступен для чтения и выполнения"
+elif [ -r /usr/bin/chromium-browser ] && [ -x /usr/bin/chromium-browser ]; then
+    print_success "Chromium-browser доступен для чтения и выполнения"
 else
     print_error "Проблемы с правами доступа к Chromium"
 fi
@@ -112,7 +128,7 @@ fi
 echo ""
 print_message "Тест запуска Chromium в headless режиме..."
 
-if timeout 10s chromium --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --dump-dom https://www.google.com > /dev/null 2>&1; then
+if timeout 10s $CHROMIUM_PATH --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --dump-dom https://www.google.com > /dev/null 2>&1; then
     print_success "Chromium успешно запускается в headless режиме"
 else
     print_warning "Проблемы с запуском Chromium в headless режиме"

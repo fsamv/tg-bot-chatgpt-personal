@@ -49,7 +49,51 @@ install_chromium() {
         "fedora"|"rhel"|"centos")
             echo "📦 Установка Chromium для Fedora/RHEL/CentOS..."
             sudo dnf update -y
-            sudo dnf install -y chromium chromium-headless chromedriver
+            
+            # Попытка установки из стандартных репозиториев
+            if sudo dnf install -y chromium chromedriver 2>/dev/null; then
+                echo "✅ Chromium установлен из стандартных репозиториев"
+            else
+                echo "📦 Попытка установки из EPEL репозитория..."
+                
+                # Установка EPEL репозитория
+                if ! sudo dnf list installed | grep -q epel-release; then
+                    sudo dnf install -y epel-release
+                fi
+                
+                # Попытка установки из EPEL
+                if sudo dnf install -y chromium chromedriver 2>/dev/null; then
+                    echo "✅ Chromium установлен из EPEL репозитория"
+                else
+                    echo "📦 Попытка установки через snap..."
+                    
+                    # Установка snapd если не установлен
+                    if ! command -v snap &> /dev/null; then
+                        sudo dnf install -y snapd
+                        sudo systemctl enable --now snapd.socket
+                        sudo ln -s /var/lib/snapd/snap /snap
+                    fi
+                    
+                    # Установка Chromium через snap
+                    if sudo snap install chromium; then
+                        echo "✅ Chromium установлен через snap"
+                        
+                        # Установка chromedriver отдельно
+                        if sudo dnf install -y chromedriver 2>/dev/null; then
+                            echo "✅ chromedriver установлен"
+                        else
+                            echo "⚠️  chromedriver не найден в репозиториях"
+                            echo "   Установите вручную или используйте webdriver-manager"
+                        fi
+                    else
+                        echo "❌ Не удалось установить Chromium"
+                        echo "Попробуйте установить вручную:"
+                        echo "   sudo dnf install -y epel-release"
+                        echo "   sudo dnf install -y chromium chromedriver"
+                        exit 1
+                    fi
+                fi
+            fi
             ;;
         "arch")
             echo "📦 Установка Chromium для Arch Linux..."
@@ -69,7 +113,7 @@ DISTRO=$(detect_distro)
 echo "🔍 Обнаружен дистрибутив: $DISTRO"
 
 # Проверка Chromium
-if ! command -v chromium &> /dev/null && ! command -v chromium-browser &> /dev/null; then
+if ! command -v chromium &> /dev/null && ! command -v chromium-browser &> /dev/null && ! command -v snap &> /dev/null; then
     echo "❌ Chromium не установлен. Устанавливаем..."
     install_chromium $DISTRO
     echo "✅ Chromium установлен"
@@ -115,6 +159,8 @@ if command -v chromium &> /dev/null; then
     CHROMIUM_PATH="chromium"
 elif command -v chromium-browser &> /dev/null; then
     CHROMIUM_PATH="chromium-browser"
+elif command -v snap &> /dev/null && snap list | grep -q chromium; then
+    CHROMIUM_PATH="snap run chromium"
 fi
 
 if [ -n "$CHROMIUM_PATH" ] && command -v chromedriver &> /dev/null; then
@@ -169,6 +215,9 @@ if [[ $REPLY =~ ^[2]$ ]]; then
         elif command -v chromium-browser &> /dev/null; then
             sudo ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
             echo "✅ Создана символическая ссылка для совместимости (chromium-browser)"
+        elif command -v snap &> /dev/null && snap list | grep -q chromium; then
+            sudo ln -sf /snap/bin/chromium /usr/bin/google-chrome-stable
+            echo "✅ Создана символическая ссылка для совместимости (snap chromium)"
         fi
     fi
     

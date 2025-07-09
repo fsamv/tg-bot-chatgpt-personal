@@ -36,6 +36,8 @@ if command -v chromium &> /dev/null; then
     CHROMIUM_PATH="chromium"
 elif command -v chromium-browser &> /dev/null; then
     CHROMIUM_PATH="chromium-browser"
+elif command -v snap &> /dev/null && snap list | grep -q chromium; then
+    CHROMIUM_PATH="snap run chromium"
 fi
 
 if [ -n "$CHROMIUM_PATH" ]; then
@@ -45,8 +47,10 @@ else
     print_error "Chromium не найден"
     echo "Установите Chromium:"
     echo "  Ubuntu/Debian: sudo apt-get install chromium-browser"
-    echo "  Fedora/RHEL: sudo dnf install chromium"
+    echo "  Fedora/RHEL/CentOS: sudo dnf install chromium"
+    echo "  CentOS Stream: sudo dnf install epel-release && sudo dnf install chromium"
     echo "  Arch: sudo pacman -S chromium"
+    echo "  Snap: sudo snap install chromium"
     exit 1
 fi
 
@@ -86,7 +90,7 @@ print_message "Проверка символической ссылки..."
 
 if [ -L /usr/bin/google-chrome-stable ]; then
     LINK_TARGET=$(readlink /usr/bin/google-chrome-stable)
-    if [ "$LINK_TARGET" = "/usr/bin/chromium" ] || [ "$LINK_TARGET" = "/usr/bin/chromium-browser" ]; then
+    if [ "$LINK_TARGET" = "/usr/bin/chromium" ] || [ "$LINK_TARGET" = "/usr/bin/chromium-browser" ] || [ "$LINK_TARGET" = "/snap/bin/chromium" ]; then
         print_success "Символическая ссылка настроена правильно"
     else
         print_warning "Символическая ссылка указывает на: $LINK_TARGET"
@@ -101,6 +105,8 @@ else
             sudo ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
         elif [ "$CHROMIUM_PATH" = "chromium-browser" ]; then
             sudo ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+        elif [ "$CHROMIUM_PATH" = "snap run chromium" ]; then
+            sudo ln -sf /snap/bin/chromium /usr/bin/google-chrome-stable
         fi
         print_success "Символическая ссылка создана"
     fi

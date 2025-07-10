@@ -1,16 +1,21 @@
 import time
 import logging
+import random
+import json
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 
 class ChatGPTClient:
-    def __init__(self, email, password, headless=True, timeout=30):
+    def __init__(self, email, password, headless=False, timeout=30):
         self.email = email
         self.password = password
         self.headless = headless
@@ -18,96 +23,117 @@ class ChatGPTClient:
         self.driver = None
         self.wait = None
         self.logger = logging.getLogger(__name__)
+        self.cookies_file = "chatgpt_cookies.json"
+        self.session_file = "chatgpt_session.json"
         
     def setup_driver(self):
         """Настройка Chrome/Chromium WebDriver"""
         chrome_options = Options()
         
+        # Headless отключен для эмуляции пользователя
         if self.headless:
-            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--headless=new")
         
         # Основные настройки для работы в контейнере
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")  # Ускоряет загрузку
-        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--window-size=1280,900")
+        # User-Agent как у обычного пользователя
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Дополнительные настройки для стабильности
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--allow-running-insecure-content")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-        
-        # Отключаем логи и расширения
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+        # Отключаем автоматизацию
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+        # Отключаем navigator.webdriver
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        
+        # Прочие настройки
         chrome_options.add_experimental_option("prefs", {
             "profile.default_content_setting_values.notifications": 2,
-            "profile.default_content_settings.popups": 0,
-            "profile.managed_default_content_settings.images": 2
+            "profile.default_content_settings.popups": 0
         })
         
         try:
             # Пытаемся использовать системный chromedriver (для Chromium)
-            service = Service("/usr/bin/chromedriver")
+            service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
         except Exception as e:
-            self.logger.warning(f"Не удалось использовать системный chromedriver: {e}")
-            # Fallback на webdriver-manager
-            try:
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            except Exception as e2:
-                self.logger.error(f"Не удалось инициализировать WebDriver: {e2}")
-                # Последняя попытка - поиск chromedriver в PATH
-                try:
-                    import subprocess
-                    chromedriver_path = subprocess.check_output(['which', 'chromedriver'], text=True).strip()
-                    service = Service(chromedriver_path)
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                except Exception as e3:
-                    self.logger.error(f"Все попытки инициализации WebDriver не удались: {e3}")
-                    raise
+            self.logger.error(f"Ошибка запуска Chrome: {e}")
+            raise
         
         self.wait = WebDriverWait(self.driver, self.timeout)
+        # Отключаем navigator.webdriver через JS
+        self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
+        })
+        # Загружаем cookies если есть
+        self._load_cookies()
+        
+    def _slow_type(self, element, text, min_delay=0.07, max_delay=0.18):
+        for char in text:
+            element.send_keys(char)
+            time.sleep(random.uniform(min_delay, max_delay))
+
+    def _save_cookies(self):
+        cookies = self.driver.get_cookies()
+        with open(self.cookies_file, "w") as f:
+            json.dump(cookies, f)
+        self.logger.info("Cookies сохранены")
+
+    def _load_cookies(self):
+        if os.path.exists(self.cookies_file):
+            self.driver.get("https://chat.openai.com")
+            with open(self.cookies_file, "r") as f:
+                cookies = json.load(f)
+            for cookie in cookies:
+                if 'sameSite' in cookie and cookie['sameSite'] == 'None':
+                    cookie['sameSite'] = 'Strict'
+                try:
+                    self.driver.add_cookie(cookie)
+                except Exception:
+                    pass
+            self.driver.refresh()
+            self.logger.info("Cookies загружены")
         
     def login(self):
         """Вход в ChatGPT"""
         try:
             self.logger.info("Открываем ChatGPT...")
             self.driver.get("https://chat.openai.com")
+            time.sleep(random.uniform(1.5, 2.5))
             
             # Ждем появления кнопки входа
             login_button = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Log in')]"))
             )
             login_button.click()
+            time.sleep(random.uniform(1.0, 2.0))
             
-            # Вводим email
+            # Вводим email медленно
             self.logger.info("Вводим email...")
             email_input = self.wait.until(
                 EC.presence_of_element_located((By.ID, "username"))
             )
             email_input.clear()
-            email_input.send_keys(self.email)
+            self._slow_type(email_input, self.email)
+            time.sleep(random.uniform(0.5, 1.0))
             
             # Нажимаем Continue
             continue_button = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Continue')]"))
             )
             continue_button.click()
+            time.sleep(random.uniform(1.0, 2.0))
             
-            # Вводим пароль
+            # Вводим пароль медленно
             self.logger.info("Вводим пароль...")
             password_input = self.wait.until(
                 EC.presence_of_element_located((By.ID, "password"))
             )
             password_input.clear()
-            password_input.send_keys(self.password)
+            self._slow_type(password_input, self.password)
+            time.sleep(random.uniform(0.5, 1.0))
             
             # Нажимаем Continue для входа
             continue_button = self.wait.until(
@@ -122,6 +148,7 @@ class ChatGPTClient:
             )
             
             self.logger.info("Успешный вход в ChatGPT")
+            self._save_cookies()
             return True
             
         except TimeoutException as e:
@@ -141,7 +168,8 @@ class ChatGPTClient:
             
             # Очищаем поле и вводим сообщение
             textarea.clear()
-            textarea.send_keys(message)
+            self._slow_type(textarea, message)
+            time.sleep(random.uniform(0.2, 0.5))
             
             # Нажимаем кнопку отправки
             send_button = self.wait.until(

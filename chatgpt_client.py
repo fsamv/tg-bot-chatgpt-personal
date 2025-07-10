@@ -3,6 +3,8 @@ import logging
 import random
 import json
 import os
+import subprocess
+import shutil
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -26,8 +28,80 @@ class ChatGPTClient:
         self.cookies_file = "chatgpt_cookies.json"
         self.session_file = "chatgpt_session.json"
         
+    def _find_chromedriver(self):
+        """Поиск chromedriver с несколькими методами"""
+        # Метод 1: Проверяем системный chromedriver
+        chromedriver_paths = [
+            "/usr/bin/chromedriver",
+            "/usr/local/bin/chromedriver",
+            "/snap/bin/chromedriver",
+            shutil.which("chromedriver")
+        ]
+        
+        for path in chromedriver_paths:
+            if path and os.path.exists(path):
+                self.logger.info(f"Найден chromedriver: {path}")
+                return path
+        
+        # Метод 2: Пытаемся использовать webdriver-manager
+        try:
+            self.logger.info("Пытаемся загрузить chromedriver через webdriver-manager...")
+            driver_path = ChromeDriverManager().install()
+            if driver_path and os.path.exists(driver_path):
+                self.logger.info(f"ChromeDriver загружен: {driver_path}")
+                return driver_path
+            else:
+                self.logger.warning("ChromeDriverManager вернул неверный путь")
+        except Exception as e:
+            self.logger.warning(f"Ошибка при загрузке через webdriver-manager: {e}")
+        
+        # Метод 3: Пытаемся найти chromedriver в PATH
+        try:
+            result = subprocess.run(['which', 'chromedriver'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                path = result.stdout.strip()
+                if os.path.exists(path):
+                    self.logger.info(f"Найден chromedriver в PATH: {path}")
+                    return path
+        except Exception as e:
+            self.logger.warning(f"Ошибка при поиске chromedriver в PATH: {e}")
+        
+        return None
+    
+    def _check_chromium_installation(self):
+        """Проверка установки Chromium"""
+        chromium_paths = [
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+            "/snap/bin/chromium",
+            shutil.which("chromium-browser"),
+            shutil.which("chromium")
+        ]
+        
+        for path in chromium_paths:
+            if path and os.path.exists(path):
+                self.logger.info(f"Найден Chromium: {path}")
+                return True
+        
+        # Проверяем через команду
+        try:
+            result = subprocess.run(['which', 'chromium-browser'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                self.logger.info(f"Найден Chromium в PATH: {result.stdout.strip()}")
+                return True
+        except Exception:
+            pass
+        
+        return False
+        
     def setup_driver(self):
         """Настройка Chrome/Chromium WebDriver"""
+        # Проверяем установку Chromium
+        if not self._check_chromium_installation():
+            raise Exception("Chromium не найден. Установите Chromium: sudo apt install chromium-browser")
+        
         chrome_options = Options()
         
         # Headless отключен для эмуляции пользователя
@@ -54,13 +128,25 @@ class ChatGPTClient:
             "profile.default_content_settings.popups": 0
         })
         
+        # Поиск chromedriver
+        chromedriver_path = self._find_chromedriver()
+        if not chromedriver_path:
+            raise Exception("Не удалось найти chromedriver. Установите chromedriver: sudo apt install chromium-chromedriver")
+        
         try:
-            # Пытаемся использовать системный chromedriver (для Chromium)
-            service = Service(ChromeDriverManager().install())
+            service = Service(chromedriver_path)
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.logger.info("Chrome/Chromium WebDriver успешно запущен")
         except Exception as e:
             self.logger.error(f"Ошибка запуска Chrome: {e}")
-            raise
+            # Попробуем запустить без Service
+            try:
+                self.logger.info("Пробуем запустить без Service...")
+                self.driver = webdriver.Chrome(options=chrome_options)
+                self.logger.info("Chrome/Chromium WebDriver запущен без Service")
+            except Exception as e2:
+                self.logger.error(f"Ошибка запуска Chrome без Service: {e2}")
+                raise Exception(f"Не удалось запустить Chrome/Chromium. Убедитесь, что версии Chromium и chromedriver совместимы: {e2}")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         # Отключаем navigator.webdriver через JS
